@@ -1,0 +1,36 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pai-next-dev
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.local
+    environment:
+      NODE_ENV: development
+      WATCHPACK_POLLING: "true"
+    volumes:
+      # Hot-reload: código fuente en el host
+      - .:/app
+      # Evitar que el volumen pise node_modules del contenedor
+      - pai_node_modules:/app/node_modules
+      - pai_next:/app/.next
+    command: ["npm", "run", "dev", "--", "--turbopack", "-H", "0.0.0.0", "-p", "3000"]
+    networks:
+      pai_net:
+        ipv4_address: 192.168.92.10
+
+volumes:
+  pai_node_modules:
+  pai_next:
+
+networks:
+  pai_net:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.92.0/24
+          gateway: 192.168.92.1
