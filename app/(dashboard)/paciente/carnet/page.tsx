@@ -6,6 +6,8 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import Link from "next/link"
 import { createClient } from "@/lib/supabase/server"
 
 export default async function PacienteCarnetPage() {
@@ -34,6 +36,11 @@ export default async function PacienteCarnetPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
+          <Button asChild variant="default" size="sm">
+            <Link href="/paciente/historial">Ver carnet de vacunación (historial)</Link>
+          </Button>
+        </CardContent>
+        <CardContent className="flex flex-wrap gap-2 border-t border-border pt-4">
           <Badge variant="secondary">
             Departamentos en BD: {deptos.count ?? "—"}
           </Badge>

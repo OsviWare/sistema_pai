@@ -7,4 +7,6 @@ export type UsuarioPerfil = {
   nombres: string
   apellido_paterno: string | null
   apellido_materno: string | null
+  /** Vínculo opcional al registro nominal en `pacientes` (carnet / RLS). */
+  paciente_id?: string | null
 }
