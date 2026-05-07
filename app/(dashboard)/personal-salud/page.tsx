@@ -20,9 +20,7 @@ export default function PersonalSaludHomePage() {
       </CardHeader>
       <CardContent className="flex flex-wrap gap-3">
         <Button asChild>
-          <Link href="/personal-salud/registrar-vacunacion">
-            Registrar vacunación
-          </Link>
+          <Link href="/personal-salud/registrar">Registrar vacunación</Link>
         </Button>
         <Button variant="outline" asChild>
           <Link href="/personal-salud/mis-pacientes">Mis pacientes</Link>

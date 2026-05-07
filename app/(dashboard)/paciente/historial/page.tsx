@@ -7,7 +7,6 @@ import {
 } from "@/components/ui/card"
 import { CarnetVacunacionLista } from "@/components/paciente/carnet-vacunacion"
 import { Button } from "@/components/ui/button"
-import { normalizarCiTexto } from "@/lib/pai/ci"
 import { lineasCarnetDesdeCatalogoYRegistros } from "@/lib/pai/carnet-vacunacion"
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
@@ -35,32 +34,7 @@ export default async function PacienteHistorialVacunacionPage() {
     redirect("/login")
   }
 
-  let pacienteId: string | null = perfil.paciente_id ?? null
-
-  if (!pacienteId && perfil.ci?.trim()) {
-    const ci = perfil.ci.trim()
-    const { data: porCi } = await supabase
-      .from("pacientes")
-      .select("id, documento_identidad")
-      .eq("documento_identidad", ci)
-      .maybeSingle()
-
-    if (porCi) {
-      pacienteId = porCi.id
-    } else {
-      const n = normalizarCiTexto(ci)
-      const { data: candidatos } = await supabase
-        .from("pacientes")
-        .select("id, documento_identidad")
-        .ilike("documento_identidad", `%${ci.replace(/\s+/g, "%")}%`)
-        .limit(5)
-
-      const coincidencia = candidatos?.find(
-        (p) => normalizarCiTexto(p.documento_identidad) === n
-      )
-      if (coincidencia) pacienteId = coincidencia.id
-    }
-  }
+  const pacienteId = perfil.paciente_id ?? null
 
   const { data: vacunas, error: errVac } = await supabase
     .from("vacunas")
@@ -90,13 +64,12 @@ export default async function PacienteHistorialVacunacionPage() {
           <CardHeader>
             <CardTitle>Carnet de vacunación</CardTitle>
             <CardDescription>
-              Para ver su esquema y aplicaciones, su perfil de Paciente debe
-              estar vinculado al registro nominal (CI en{" "}
-              <code className="text-xs">usuarios_perfil</code> igual a{" "}
-              <code className="text-xs">documento_identidad</code> en{" "}
-              <code className="text-xs">pacientes</code>), o un Administrador
-              PAI debe asignarle{" "}
-              <code className="text-xs">paciente_id</code> en su perfil.
+              Para ver su carnet y que RLS (nivel 3) permita leer sus
+              aplicaciones, un Administrador PAI debe asignar en su perfil el
+              campo{" "}
+              <code className="text-xs">paciente_id</code> apuntando a su fila
+              en <code className="text-xs">pacientes</code> (coincidente con su
+              cédula de identidad nominal).
             </CardDescription>
           </CardHeader>
         </Card>
@@ -119,7 +92,8 @@ export default async function PacienteHistorialVacunacionPage() {
         <CardHeader>
           <CardTitle>Carnet de vacunación</CardTitle>
           <CardDescription>
-            No se pudieron leer sus registros (RLS o datos).
+            No se pudieron leer sus registros (verifique vínculo paciente_id y
+            RLS).
           </CardDescription>
         </CardHeader>
         <p className="text-destructive px-6 pb-6 text-sm">{errReg.message}</p>
@@ -142,9 +116,10 @@ export default async function PacienteHistorialVacunacionPage() {
         <CardHeader>
           <CardTitle>Carnet de vacunación — PAI</CardTitle>
           <CardDescription>
-            Esquema oficial según catálogo de vacunas. Cada tarjeta indica si la
-            dosis consta como <strong>Aplicada</strong> o <strong>Pendiente</strong>{" "}
-            según sus registros en el sistema.
+            Esquema oficial del catálogo. <strong className="text-emerald-700 dark:text-emerald-400">Aplicada</strong>{" "}
+            (verde) si existe registro para esa vacuna/dosis;{" "}
+            <strong className="text-amber-800 dark:text-amber-200">Pendiente</strong>{" "}
+            (amarillo) si aún no consta aplicación en el sistema.
           </CardDescription>
         </CardHeader>
       </Card>

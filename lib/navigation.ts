@@ -19,7 +19,7 @@ export const NAV_ADMIN: NavItem[] = [
 /** Personal de salud — aplicación y seguimiento PAI */
 export const NAV_PERSONAL_SALUD: NavItem[] = [
   {
-    href: "/personal-salud/registrar-vacunacion",
+    href: "/personal-salud/registrar",
     label: "Registrar vacunación",
   },
   { href: "/personal-salud/mis-pacientes", label: "Mis pacientes" },

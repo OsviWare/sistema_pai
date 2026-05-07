@@ -47,9 +47,11 @@ export function VacunaCard({
           <CardTitle className="text-base leading-snug">{nombre}</CardTitle>
           {mostrarEstado && (
             <Badge
-              variant={aplicada ? "default" : "secondary"}
+              variant={aplicada ? "default" : "outline"}
               className={
-                aplicada ? "bg-emerald-600 hover:bg-emerald-600" : undefined
+                aplicada
+                  ? "border-transparent bg-emerald-600 text-white hover:bg-emerald-600"
+                  : "border-amber-500/60 bg-amber-100 text-amber-950 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-950/40"
               }
             >
               {aplicada ? "Aplicada" : "Pendiente"}
