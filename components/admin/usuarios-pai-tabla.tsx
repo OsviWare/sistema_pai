@@ -41,6 +41,9 @@ import {
 } from "@/components/ui/table"
 import { ROLES_PAI } from "@/lib/auth/roles"
 import type { RolPai } from "@/lib/types/usuario"
+import { createClient } from "@/lib/supabase/client"
+
+const SIN_VINCULO_SELECT = "__sin_vinculo__"
 
 export type UsuarioPaiAdminFila = {
   id: string
@@ -50,6 +53,9 @@ export type UsuarioPaiAdminFila = {
   nombres: string
   apellido_paterno: string | null
   apellido_materno: string | null
+  establecimiento_id: string | null
+  paciente_id: string | null
+  paciente_fecha_nacimiento?: string | null
   cuentaActiva: boolean
   banned_until: string | null
   created_at: string | null
@@ -99,11 +105,30 @@ function formCrearVacio(): FormCrear {
 
 type FormEditar = {
   userId: string
+  rol: RolPai
   email: string
   ci: string
   nombres: string
   apellidoPaterno: string
   apellidoMaterno: string
+  establecimientoId: string | null
+  pacienteId: string | null
+  pacienteFechaNacimiento: string
+}
+
+type EstablecimientoOpcion = {
+  id: string
+  codigo_externo: string
+  nombre: string
+}
+
+type PacienteOpcion = {
+  id: string
+  codigo_externo: string
+  documento_identidad: string | null
+  nombres: string
+  primer_apellido: string
+  fecha_nacimiento: string | null
 }
 
 export function UsuariosPaiTabla({ adminUserId }: { adminUserId: string }) {
@@ -119,6 +144,12 @@ export function UsuariosPaiTabla({ adminUserId }: { adminUserId: string }) {
 
   const [editarAbierto, setEditarAbierto] = useState(false)
   const [formEditar, setFormEditar] = useState<FormEditar | null>(null)
+  const [establecimientosOpciones, setEstablecimientosOpciones] = useState<
+    EstablecimientoOpcion[]
+  >([])
+  const [pacientesOpciones, setPacientesOpciones] = useState<PacienteOpcion[]>(
+    []
+  )
 
   const [eliminarUsuario, setEliminarUsuario] =
     useState<UsuarioPaiAdminFila | null>(null)
@@ -153,6 +184,42 @@ export function UsuariosPaiTabla({ adminUserId }: { adminUserId: string }) {
   useEffect(() => {
     void cargar()
   }, [cargar])
+
+  useEffect(() => {
+    if (!editarAbierto) return
+    const sb = createClient()
+    let cancelado = false
+    void (async () => {
+      const [{ data: estabs, error: eEst }, { data: pacs, error: ePac }] =
+        await Promise.all([
+          sb
+            .from("establecimientos")
+            .select("id, codigo_externo, nombre")
+            .order("nombre"),
+          sb
+            .from("pacientes")
+            .select(
+              "id, codigo_externo, documento_identidad, nombres, primer_apellido, fecha_nacimiento"
+            )
+            .order("nombres")
+            .limit(500),
+        ])
+      if (cancelado) return
+      if (eEst) {
+        toast.error("No se cargaron establecimientos", {
+          description: eEst.message,
+        })
+      }
+      if (ePac) {
+        toast.error("No se cargaron pacientes", { description: ePac.message })
+      }
+      setEstablecimientosOpciones(estabs ?? [])
+      setPacientesOpciones(pacs ?? [])
+    })()
+    return () => {
+      cancelado = true
+    }
+  }, [editarAbierto])
 
   async function ejecutarPatch(body: {
     userId: string
@@ -238,6 +305,18 @@ export function UsuariosPaiTabla({ adminUserId }: { adminUserId: string }) {
           nombres: formEditar.nombres.trim(),
           apellidoPaterno: formEditar.apellidoPaterno.trim() || null,
           apellidoMaterno: formEditar.apellidoMaterno.trim() || null,
+          establecimiento_id:
+            formEditar.rol === "personal_salud"
+              ? formEditar.establecimientoId
+              : null,
+          paciente_id:
+            formEditar.rol === "paciente" ? formEditar.pacienteId : null,
+          ...(formEditar.rol === "paciente"
+            ? {
+                fecha_nacimiento:
+                  (formEditar.pacienteFechaNacimiento ?? "").trim() || null,
+              }
+            : {}),
         }),
       })
       const data = (await res.json()) as {
@@ -288,13 +367,22 @@ export function UsuariosPaiTabla({ adminUserId }: { adminUserId: string }) {
   }
 
   function abrirEditar(u: UsuarioPaiAdminFila) {
+    const rawFn = u.paciente_fecha_nacimiento
+    const fn =
+      rawFn != null && String(rawFn).trim() !== ""
+        ? String(rawFn).trim().slice(0, 10)
+        : ""
     setFormEditar({
       userId: u.id,
+      rol: u.rol,
       email: u.email,
       ci: u.ci,
       nombres: u.nombres,
       apellidoPaterno: u.apellido_paterno ?? "",
       apellidoMaterno: u.apellido_materno ?? "",
+      establecimientoId: u.establecimiento_id ?? null,
+      pacienteId: u.paciente_id ?? null,
+      pacienteFechaNacimiento: u.rol === "paciente" ? fn : "",
     })
     setEditarAbierto(true)
   }
@@ -632,12 +720,16 @@ export function UsuariosPaiTabla({ adminUserId }: { adminUserId: string }) {
           if (!open) setFormEditar(null)
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Editar usuario PAI</DialogTitle>
             <DialogDescription>
               Actualiza correo, CI y nombres. El rol se cambia con el desplegable
-              de la tabla.
+              de la tabla. Para{" "}
+              <strong>{ROLES_PAI.personal_salud}</strong>, asigne el
+              establecimiento donde aplica dosis; para{" "}
+              <strong>{ROLES_PAI.paciente}</strong>, vincule la ficha nominal y,
+              si aplica, la fecha de nacimiento registrada en esa ficha.
             </DialogDescription>
           </DialogHeader>
           {formEditar && (
@@ -706,6 +798,115 @@ export function UsuariosPaiTabla({ adminUserId }: { adminUserId: string }) {
                     />
                   </div>
                 </div>
+                {formEditar.rol === "personal_salud" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="ed-estab">Establecimiento de salud</Label>
+                    <Select
+                      value={
+                        formEditar.establecimientoId ?? SIN_VINCULO_SELECT
+                      }
+                      onValueChange={(v) =>
+                        setFormEditar((f) =>
+                          f
+                            ? {
+                                ...f,
+                                establecimientoId:
+                                  v === SIN_VINCULO_SELECT ? null : v,
+                              }
+                            : f
+                        )
+                      }
+                    >
+                      <SelectTrigger id="ed-estab" className="w-full">
+                        <SelectValue placeholder="Seleccionar…" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[280px]">
+                        <SelectItem value={SIN_VINCULO_SELECT}>
+                          Sin establecimiento
+                        </SelectItem>
+                        {establecimientosOpciones.map((e) => (
+                          <SelectItem key={e.id} value={e.id}>
+                            {e.codigo_externo} — {e.nombre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-muted-foreground text-xs">
+                      Sin establecimiento no podrá guardar registros de vacunación
+                      (el servidor exige este vínculo).
+                    </p>
+                  </div>
+                )}
+                {formEditar.rol === "paciente" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="ed-pac">Vínculo con ficha de paciente</Label>
+                    <Select
+                      value={formEditar.pacienteId ?? SIN_VINCULO_SELECT}
+                      onValueChange={(v) =>
+                        setFormEditar((f) => {
+                          if (!f) return f
+                          const id = v === SIN_VINCULO_SELECT ? null : v
+                          const opt = id
+                            ? pacientesOpciones.find((p) => p.id === id)
+                            : null
+                          const fnRaw = opt?.fecha_nacimiento
+                          const fn =
+                            fnRaw != null && String(fnRaw).trim() !== ""
+                              ? String(fnRaw).slice(0, 10)
+                              : ""
+                          return {
+                            ...f,
+                            pacienteId: id,
+                            pacienteFechaNacimiento: fn,
+                          }
+                        })
+                      }
+                    >
+                      <SelectTrigger id="ed-pac" className="w-full">
+                        <SelectValue placeholder="Seleccionar…" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[280px]">
+                        <SelectItem value={SIN_VINCULO_SELECT}>
+                          Sin vínculo
+                        </SelectItem>
+                        {pacientesOpciones.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.documento_identidad?.trim() || p.codigo_externo} —{" "}
+                            {p.nombres} {p.primer_apellido}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-muted-foreground text-xs">
+                      Lista limitada a 500 filas; si no aparece el paciente,
+                      créelo o amplíe la consulta en una versión posterior.
+                    </p>
+                    <div className="space-y-2">
+                      <Label htmlFor="ed-fnac">
+                        Fecha de nacimiento (ficha nominal)
+                      </Label>
+                      <Input
+                        id="ed-fnac"
+                        type="date"
+                        value={formEditar.pacienteFechaNacimiento ?? ""}
+                        onChange={(e) =>
+                          setFormEditar((f) =>
+                            f
+                              ? {
+                                  ...f,
+                                  pacienteFechaNacimiento: e.target.value,
+                                }
+                              : f
+                          )
+                        }
+                      />
+                      <p className="text-muted-foreground text-xs">
+                        Requiere vínculo con una ficha. Deje vacío para borrar la
+                        fecha en la ficha nominal.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button

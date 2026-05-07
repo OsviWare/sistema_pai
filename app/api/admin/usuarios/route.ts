@@ -4,6 +4,11 @@ import { esRolPai } from "@/lib/auth/roles"
 import { requireAdministradorPai } from "@/lib/auth/require-admin-api"
 import { crearCuentaUsuarioPai } from "@/lib/supabase/crear-cuenta-pai"
 import { createAdminClient } from "@/lib/supabase/admin"
+import {
+  asegurarFichaNominalParaBrigadas,
+  sincronizarFichaPacienteSiFalta,
+  vincularFichaNominalPaciente,
+} from "@/lib/supabase/vincular-ficha-paciente"
 import { ciPaiSchema, registroSchemaApi } from "@/lib/validations/auth"
 import type { RolPai } from "@/lib/types/usuario"
 
@@ -29,6 +34,14 @@ const patchBodySchema = z.discriminatedUnion("accion", [
     nombres: z.string().min(2),
     apellidoPaterno: z.string().optional().nullable(),
     apellidoMaterno: z.string().optional().nullable(),
+    establecimiento_id: z.union([z.string().uuid(), z.null()]).optional(),
+    paciente_id: z.union([z.string().uuid(), z.null()]).optional(),
+    fecha_nacimiento: z
+      .union([
+        z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha ISO YYYY-MM-DD"),
+        z.null(),
+      ])
+      .optional(),
   }),
 ])
 
@@ -65,7 +78,7 @@ export async function GET(request: Request) {
   const { data: perfiles, error: perfilError } = await admin
     .from("usuarios_perfil")
     .select(
-      "id, ci, rol, nombres, apellido_paterno, apellido_materno, created_at, updated_at"
+      "id, ci, rol, nombres, apellido_paterno, apellido_materno, created_at, updated_at, establecimiento_id, paciente_id"
     )
     .in("id", ids)
 
@@ -99,6 +112,9 @@ export async function GET(request: Request) {
       nombres: perfil?.nombres ?? "",
       apellido_paterno: perfil?.apellido_paterno ?? null,
       apellido_materno: perfil?.apellido_materno ?? null,
+      establecimiento_id: (perfil as { establecimiento_id?: string | null })
+        ?.establecimiento_id ?? null,
+      paciente_id: (perfil as { paciente_id?: string | null })?.paciente_id ?? null,
       cuentaActiva,
       banned_until: u.banned_until ?? null,
       created_at: perfil?.created_at ?? u.created_at,
@@ -106,10 +122,48 @@ export async function GET(request: Request) {
     }
   })
 
+  const pacienteIds = [
+    ...new Set(
+      usuarios
+        .map((x) => x.paciente_id)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ]
+
+  const fechaNacPorPaciente = new Map<string, string | null>()
+  if (pacienteIds.length > 0) {
+    const { data: pacsFn, error: pacsFnErr } = await admin
+      .from("pacientes")
+      .select("id, fecha_nacimiento")
+      .in("id", pacienteIds)
+
+    if (pacsFnErr) {
+      return NextResponse.json(
+        { ok: false, error: pacsFnErr.message },
+        { status: 500 }
+      )
+    }
+    for (const row of pacsFn ?? []) {
+      const id = row.id as string
+      const fn = row.fecha_nacimiento as string | null | undefined
+      fechaNacPorPaciente.set(
+        id,
+        fn == null || fn === "" ? null : String(fn).slice(0, 10)
+      )
+    }
+  }
+
+  const usuariosEnriquecidos = usuarios.map((x) => ({
+    ...x,
+    paciente_fecha_nacimiento: x.paciente_id
+      ? fechaNacPorPaciente.get(x.paciente_id) ?? null
+      : null,
+  }))
+
   const filtrados =
     rolFiltro != null
-      ? usuarios.filter((x) => x.rol === rolFiltro)
-      : usuarios
+      ? usuariosEnriquecidos.filter((x) => x.rol === rolFiltro)
+      : usuariosEnriquecidos
 
   return NextResponse.json({ ok: true, usuarios: filtrados })
 }
@@ -173,17 +227,16 @@ export async function PATCH(request: Request) {
   }
 
   const parsed = patchBodySchema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Datos inválidos",
-        details: parsed.error.flatten(),
-      },
-      { status: 400 }
-    )
-
-  }
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Datos inválidos",
+          details: parsed.error.flatten(),
+        },
+        { status: 400 }
+      )
+    }
 
   const admin = createAdminClient()
 
@@ -200,21 +253,55 @@ export async function PATCH(request: Request) {
     }
 
     const meta = (destino.user.user_metadata ?? {}) as Record<string, unknown>
-    const rolActual =
-      meta.rol === "admin" ||
-      meta.rol === "personal_salud" ||
-      meta.rol === "paciente"
-        ? meta.rol
+
+    const { data: perfilRolRow, error: perfilRolErr } = await admin
+      .from("usuarios_perfil")
+      .select("rol")
+      .eq("id", d.userId)
+      .maybeSingle()
+
+    if (perfilRolErr) {
+      return NextResponse.json(
+        { ok: false, error: perfilRolErr.message },
+        { status: 500 }
+      )
+    }
+
+    const rolActual = (
+      perfilRolRow?.rol && esRolPai(perfilRolRow.rol)
+        ? perfilRolRow.rol
         : "paciente"
+    ) as RolPai
+
+    const perfilUpdate: Record<string, unknown> = {
+      ci: d.ci.trim(),
+      nombres: d.nombres.trim(),
+      apellido_paterno: d.apellidoPaterno?.trim() || null,
+      apellido_materno: d.apellidoMaterno?.trim() || null,
+    }
+
+    if (rolActual === "personal_salud") {
+      if (d.establecimiento_id !== undefined) {
+        perfilUpdate.establecimiento_id = d.establecimiento_id
+      }
+      perfilUpdate.paciente_id = null
+    } else if (rolActual === "paciente") {
+      if (d.paciente_id !== undefined) {
+        perfilUpdate.paciente_id = d.paciente_id
+      }
+      perfilUpdate.establecimiento_id = null
+    } else {
+      if (d.establecimiento_id !== undefined) {
+        perfilUpdate.establecimiento_id = null
+      }
+      if (d.paciente_id !== undefined) {
+        perfilUpdate.paciente_id = null
+      }
+    }
 
     const { error: perfilErr } = await admin
       .from("usuarios_perfil")
-      .update({
-        ci: d.ci.trim(),
-        nombres: d.nombres.trim(),
-        apellido_paterno: d.apellidoPaterno?.trim() || null,
-        apellido_materno: d.apellidoMaterno?.trim() || null,
-      })
+      .update(perfilUpdate)
       .eq("id", d.userId)
 
     if (perfilErr) {
@@ -242,6 +329,82 @@ export async function PATCH(request: Request) {
         { ok: false, error: authErr.message },
         { status: 400 }
       )
+    }
+
+    if (rolActual === "paciente") {
+      const nom = await asegurarFichaNominalParaBrigadas(admin, {
+        userId: d.userId,
+        ci: d.ci.trim(),
+        nombres: d.nombres.trim(),
+        apellidoPaterno: d.apellidoPaterno,
+        apellidoMaterno: d.apellidoMaterno,
+      })
+      if (!nom.ok) {
+        return NextResponse.json(
+          { ok: false, error: nom.error },
+          { status: 400 }
+        )
+      }
+      if (d.paciente_id === null) {
+        const vinc = await vincularFichaNominalPaciente(admin, {
+          userId: d.userId,
+          ci: d.ci.trim(),
+          nombres: d.nombres.trim(),
+          apellidoPaterno: d.apellidoPaterno,
+          apellidoMaterno: d.apellidoMaterno,
+        })
+        if (!vinc.ok) {
+          return NextResponse.json(
+            { ok: false, error: vinc.error },
+            { status: 400 }
+          )
+        }
+      } else {
+        const sync = await sincronizarFichaPacienteSiFalta(admin, d.userId)
+        if (!sync.ok) {
+          return NextResponse.json(
+            { ok: false, error: sync.error },
+            { status: 400 }
+          )
+        }
+      }
+
+      if (d.fecha_nacimiento !== undefined) {
+        const { data: perfilPac, error: perfilPacErr } = await admin
+          .from("usuarios_perfil")
+          .select("paciente_id")
+          .eq("id", d.userId)
+          .maybeSingle()
+
+        if (perfilPacErr) {
+          return NextResponse.json(
+            { ok: false, error: perfilPacErr.message },
+            { status: 500 }
+          )
+        }
+        const pid = perfilPac?.paciente_id as string | null | undefined
+        if (!pid) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error:
+                "No hay ficha nominal vinculada; no se puede actualizar la fecha de nacimiento.",
+            },
+            { status: 400 }
+          )
+        }
+        const { error: fnErr } = await admin
+          .from("pacientes")
+          .update({ fecha_nacimiento: d.fecha_nacimiento })
+          .eq("id", pid)
+
+        if (fnErr) {
+          return NextResponse.json(
+            { ok: false, error: fnErr.message },
+            { status: 400 }
+          )
+        }
+      }
     }
 
     return NextResponse.json({
@@ -307,6 +470,16 @@ export async function PATCH(request: Request) {
         { ok: false, error: upErr.message },
         { status: 400 }
       )
+    }
+
+    if (nuevoRol === "paciente") {
+      const sync = await sincronizarFichaPacienteSiFalta(admin, userId)
+      if (!sync.ok) {
+        return NextResponse.json(
+          { ok: false, error: sync.error },
+          { status: 400 }
+        )
+      }
     }
 
     return NextResponse.json({

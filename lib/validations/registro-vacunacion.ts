@@ -13,6 +13,11 @@ export const registroVacunacionPostSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Use fecha ISO (YYYY-MM-DD).")
     .optional(),
+  /** Obligatorio si el paciente aún no tiene fecha_nacimiento en `pacientes`. */
+  fecha_nacimiento_paciente: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Use fecha ISO (YYYY-MM-DD).")
+    .optional(),
 })
 
 export type RegistroVacunacionPostInput = z.infer<

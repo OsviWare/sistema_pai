@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,6 +21,10 @@ import {
 } from "@/components/ui/select"
 import { createClient } from "@/lib/supabase/client"
 import { normalizarCiTexto } from "@/lib/pai/ci"
+import {
+  edadCumpleRangoVacunaPai,
+  edadPacienteEnDias,
+} from "@/lib/validations/registro-vacunacion"
 
 type PacienteFila = {
   id: string
@@ -37,6 +41,18 @@ type VacunaApi = {
   vacuna_nombre: string
   numero_dosis: number
   grupo_pai: string | null
+  edad_minima_dias: number | null
+  edad_maxima_dias: number | null
+}
+
+function textoRangoEdadDias(
+  min: number | null,
+  max: number | null
+): string {
+  if (min == null && max == null) return "sin rango definido en catálogo"
+  const desde = min ?? 0
+  const hasta = max == null ? "sin tope" : `${max}`
+  return `${desde}–${hasta} días`
 }
 
 export function RegistrarVacunacionForm() {
@@ -50,6 +66,7 @@ export function RegistrarVacunacionForm() {
   const [lote, setLote] = useState("")
   const [temperatura, setTemperatura] = useState("")
   const [fechaVac, setFechaVac] = useState("")
+  const [fechaNacDeclarada, setFechaNacDeclarada] = useState("")
   const [enviando, setEnviando] = useState(false)
 
   const cargarVacunas = useCallback(async () => {
@@ -73,6 +90,49 @@ export function RegistrarVacunacionForm() {
     const hoy = new Date().toISOString().slice(0, 10)
     setFechaVac(hoy)
   }, [cargarVacunas])
+
+  useEffect(() => {
+    setFechaNacDeclarada("")
+  }, [pacienteSel?.id])
+
+  const avisoEdadCatalogo = useMemo(() => {
+    if (!pacienteSel?.id || !vacunaId || !fechaVac) return null
+    const fnacRaw =
+      (pacienteSel.fecha_nacimiento?.trim() || fechaNacDeclarada.trim()) ||
+      null
+    if (!fnacRaw) return null
+    const vac = vacunas.find((v) => v.id === vacunaId)
+    if (!vac) return null
+    const ref = new Date(fechaVac + "T12:00:00")
+    if (Number.isNaN(ref.getTime())) return null
+    const edadDias = edadPacienteEnDias(fnacRaw, ref)
+    if (edadDias === null) {
+      return {
+        tipo: "error" as const,
+        texto:
+          "No se pudo calcular la edad con la fecha de nacimiento y la de aplicación.",
+      }
+    }
+    const ok = edadCumpleRangoVacunaPai(
+      edadDias,
+      vac.edad_minima_dias,
+      vac.edad_maxima_dias
+    )
+    const rango = textoRangoEdadDias(
+      vac.edad_minima_dias,
+      vac.edad_maxima_dias
+    )
+    if (ok) {
+      return {
+        tipo: "ok" as const,
+        texto: `Edad en la fecha de aplicación: ${edadDias} días. Rango oficial de esta dosis: ${rango}.`,
+      }
+    }
+    return {
+      tipo: "alerta" as const,
+      texto: `Edad en la fecha de aplicación: ${edadDias} días. Esta dosis solo aplica dentro del rango oficial (${rango}). Elija otra vacuna o un paciente cuya edad cumpla el esquema PAI.`,
+    }
+  }, [pacienteSel, vacunaId, fechaVac, fechaNacDeclarada, vacunas])
 
   async function buscarPorCi() {
     const term = ciBuscar.trim()
@@ -109,7 +169,10 @@ export function RegistrarVacunacionForm() {
 
       setResultados(filtrados.length > 0 ? filtrados : (data ?? []))
       if ((data?.length ?? 0) === 0) {
-        toast.message("No se encontraron pacientes con esa CI.")
+        toast.message("No se encontraron pacientes con esa CI.", {
+          description:
+            "Si el paciente solo tiene cuenta en el sistema, el administrador debe abrir Usuarios → Editar ese usuario y guardar: así se crea la ficha nominal para brigadas.",
+        })
       }
     } finally {
       setBuscando(false)
@@ -127,6 +190,12 @@ export function RegistrarVacunacionForm() {
     }
     if (!lote.trim()) {
       toast.error("Indique el lote del biológico.")
+      return
+    }
+    if (!pacienteSel.fecha_nacimiento && !fechaNacDeclarada.trim()) {
+      toast.error("Indique la fecha de nacimiento del paciente.", {
+        description: "La ficha nominal aún no tiene esa fecha; es obligatoria para validar la edad frente al esquema PAI.",
+      })
       return
     }
 
@@ -151,12 +220,16 @@ export function RegistrarVacunacionForm() {
           lote_vacuna: lote.trim(),
           temperatura_conservacion_c: tempVal,
           fecha_vacunacion: fechaVac || undefined,
+          ...(pacienteSel.fecha_nacimiento
+            ? {}
+            : { fecha_nacimiento_paciente: fechaNacDeclarada.trim() }),
         }),
       })
       const json = (await res.json()) as {
         ok?: boolean
         message?: string
         error?: string
+        warning?: string
       }
       if (!res.ok || !json.ok) {
         toast.error("Registro no guardado", {
@@ -165,8 +238,19 @@ export function RegistrarVacunacionForm() {
         return
       }
       toast.success(json.message ?? "Dosis registrada.")
+      if (json.warning) {
+        toast.message("Fecha de nacimiento en ficha", {
+          description: json.warning,
+        })
+      }
       setLote("")
       setTemperatura("")
+      setFechaNacDeclarada("")
+      if (!pacienteSel.fecha_nacimiento && fechaNacDeclarada) {
+        setPacienteSel((p) =>
+          p ? { ...p, fecha_nacimiento: fechaNacDeclarada.trim() } : p
+        )
+      }
     } finally {
       setEnviando(false)
     }
@@ -178,8 +262,10 @@ export function RegistrarVacunacionForm() {
         <CardHeader>
           <CardTitle>1. Buscar paciente por CI</CardTitle>
           <CardDescription>
-            Cédula de identidad según registro nominal PAI (
-            <code className="text-xs">pacientes.documento_identidad</code>).
+            Se busca por documento en la tabla nominal{" "}
+            <code className="text-xs">pacientes</code> (no basta con tener solo
+            usuario web: el administrador debe haber generado esa ficha al crear o
+            editar al paciente).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -247,25 +333,50 @@ export function RegistrarVacunacionForm() {
         <CardHeader>
           <CardTitle>2. Registrar aplicación de dosis</CardTitle>
           <CardDescription>
-            Solo se guarda si la edad del paciente en el día de aplicación cumple
-            el rango del catálogo oficial (
-            <code className="text-xs">edad_minima_dias / edad_maxima_dias</code>
-            ).
+            El catálogo oficial define un rango de edad en <strong>días</strong>{" "}
+            por cada dosis (por ejemplo Pentavalente dosis 1 solo aplica a
+            lactantes, no a adultos). Si la edad del paciente en la fecha de
+            aplicación no entra en ese rango, el registro se rechaza.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {pacienteSel ? (
-            <p className="text-sm">
-              <span className="font-medium">Paciente: </span>
-              {pacienteSel.documento_identidad} —{" "}
-              {[
-                pacienteSel.nombres,
-                pacienteSel.primer_apellido,
-                pacienteSel.segundo_apellido,
-              ]
-                .filter(Boolean)
-                .join(" ")}
-            </p>
+            <>
+              <p className="text-sm">
+                <span className="font-medium">Paciente: </span>
+                {pacienteSel.documento_identidad} —{" "}
+                {[
+                  pacienteSel.nombres,
+                  pacienteSel.primer_apellido,
+                  pacienteSel.segundo_apellido,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              </p>
+              {pacienteSel.fecha_nacimiento ? (
+                <p className="text-muted-foreground text-xs">
+                  Fecha de nacimiento en ficha: {pacienteSel.fecha_nacimiento}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="fnac-pac">
+                    Fecha de nacimiento del paciente (obligatoria si no figura en
+                    ficha)
+                  </Label>
+                  <Input
+                    id="fnac-pac"
+                    type="date"
+                    value={fechaNacDeclarada}
+                    onChange={(e) => setFechaNacDeclarada(e.target.value)}
+                    required
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    Se usa para validar la edad frente al catálogo PAI y se guarda
+                    en la ficha nominal cuando aplique.
+                  </p>
+                </div>
+              )}
+            </>
           ) : (
             <p className="text-muted-foreground text-sm">
               Primero seleccione un paciente de la lista de la izquierda.
@@ -280,8 +391,7 @@ export function RegistrarVacunacionForm() {
               <SelectContent className="max-h-72">
                 {vacunas.map((v) => (
                   <SelectItem key={v.id} value={v.id}>
-                    {v.codigo_externo} — {v.vacuna_nombre} (dosis{" "}
-                    {v.numero_dosis})
+                    {`${v.codigo_externo} — ${v.vacuna_nombre} (dosis ${v.numero_dosis}) · ${textoRangoEdadDias(v.edad_minima_dias, v.edad_maxima_dias)}`}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -313,6 +423,19 @@ export function RegistrarVacunacionForm() {
               onChange={(e) => setFechaVac(e.target.value)}
             />
           </div>
+          {avisoEdadCatalogo && (
+            <p
+              className={
+                avisoEdadCatalogo.tipo === "alerta"
+                  ? "rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100"
+                  : avisoEdadCatalogo.tipo === "error"
+                    ? "rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                    : "text-muted-foreground rounded-md border border-border bg-muted/40 px-3 py-2 text-sm"
+              }
+            >
+              {avisoEdadCatalogo.texto}
+            </p>
+          )}
           <Button
             type="button"
             className="w-full sm:w-auto"

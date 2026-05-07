@@ -9,7 +9,10 @@ export type PerfilSaludAplicacion = {
   rol: string
 } | null
 
-export async function requirePersonalSaludPai() {
+export async function requirePersonalSaludPai(options?: {
+  exigirEstablecimiento?: boolean
+}) {
+  const exigirEstablecimiento = options?.exigirEstablecimiento !== false
   const supabase = await createClient()
   const {
     data: { user },
@@ -56,7 +59,7 @@ export async function requirePersonalSaludPai() {
 
   const perfilDatos = perfil as PerfilSaludAplicacion
 
-  if (!perfilDatos?.establecimiento_id) {
+  if (exigirEstablecimiento && !perfilDatos?.establecimiento_id) {
     return {
       supabase,
       user,

@@ -15,15 +15,32 @@ export async function GET(request: Request) {
       100,
       Math.max(1, Number(searchParams.get("limit") ?? "50"))
     )
+    const soloMios = searchParams.get("solo_mios") === "1"
 
     const supabase = await createClient()
-    const { data, error } = await supabase
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    let q = supabase
       .from("registros_vacunacion")
       .select(
-        "id, codigo_registro_externo, fecha_vacunacion, numero_dosis, lote_vacuna, temperatura_conservacion_c, fuente_datos, paciente_id, vacuna_id, establecimiento_id, edad_dias_aplicacion"
+        "id, codigo_registro_externo, fecha_vacunacion, numero_dosis, lote_vacuna, temperatura_conservacion_c, fuente_datos, paciente_id, vacuna_id, establecimiento_id, edad_dias_aplicacion, registrado_por_id"
       )
       .order("fecha_vacunacion", { ascending: false })
       .limit(limit)
+
+    if (soloMios) {
+      if (!user) {
+        return NextResponse.json(
+          { ok: false, error: "Debe iniciar sesión." },
+          { status: 401 }
+        )
+      }
+      q = q.eq("registrado_por_id", user.id)
+    }
+
+    const { data, error } = await q
 
     if (error) {
       return NextResponse.json(
@@ -40,8 +57,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { supabase, perfil, error } = await requirePersonalSaludPai()
+  const { supabase, user, perfil, error } = await requirePersonalSaludPai()
   if (error) return error
+  if (!user) {
+    return NextResponse.json({ ok: false, error: "Sesión no válida." }, { status: 401 })
+  }
   if (!perfil?.establecimiento_id) {
     return NextResponse.json(
       { ok: false, error: "Establecimiento no asignado." },
@@ -74,6 +94,7 @@ export async function POST(request: Request) {
 
   const { paciente_id, vacuna_id, lote_vacuna, temperatura_conservacion_c } =
     parsed.data
+  const fechaNacimientoPacienteInput = parsed.data.fecha_nacimiento_paciente
 
   const fechaVacunacionStr =
     parsed.data.fecha_vacunacion ??
@@ -113,14 +134,28 @@ export async function POST(request: Request) {
     )
   }
 
-  const edadDias = edadPacienteEnDias(paciente.fecha_nacimiento, fechaRef)
+  const fechaNacEfectiva =
+    paciente.fecha_nacimiento ?? fechaNacimientoPacienteInput ?? null
+
+  if (!fechaNacEfectiva) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "El paciente no tiene fecha de nacimiento en el sistema. Indíquela en el formulario de registro para validar la edad frente al esquema PAI.",
+      },
+      { status: 400 }
+    )
+  }
+
+  const edadDias = edadPacienteEnDias(fechaNacEfectiva, fechaRef)
 
   if (edadDias === null) {
     return NextResponse.json(
       {
         ok: false,
         error:
-          "El paciente no tiene fecha de nacimiento registrada o la fecha es inválida; no se puede validar la edad frente al esquema PAI.",
+          "La fecha de nacimiento indicada no permite calcular la edad de forma válida (revise día de aplicación y nacimiento).",
       },
       { status: 400 }
     )
@@ -150,6 +185,7 @@ export async function POST(request: Request) {
       paciente_id,
       vacuna_id,
       establecimiento_id: perfil.establecimiento_id,
+      registrado_por_id: user.id,
       fecha_vacunacion: fechaVacunacionStr,
       numero_dosis: vacuna.numero_dosis,
       lote_vacuna: lote_vacuna.trim(),
@@ -170,9 +206,24 @@ export async function POST(request: Request) {
     )
   }
 
+  let persistFnacWarning: string | undefined
+  if (!paciente.fecha_nacimiento && fechaNacimientoPacienteInput) {
+    const { error: upFnacErr } = await supabase
+      .from("pacientes")
+      .update({ fecha_nacimiento: fechaNacimientoPacienteInput })
+      .eq("id", paciente_id)
+
+    if (upFnacErr) {
+      persistFnacWarning = upFnacErr.message
+    }
+  }
+
   return NextResponse.json({
     ok: true,
-    message: "Dosis registrada en el Sistema PAI.",
+    message: persistFnacWarning
+      ? "Dosis registrada. La fecha de nacimiento no se pudo guardar en la ficha; revise permisos o pídale a un administrador que ejecute la migración RLS o actualice la ficha."
+      : "Dosis registrada en el Sistema PAI.",
     id: insertado?.id,
+    ...(persistFnacWarning ? { warning: persistFnacWarning } : {}),
   })
 }

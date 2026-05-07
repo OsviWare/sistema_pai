@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin"
+import { vincularFichaNominalPaciente } from "@/lib/supabase/vincular-ficha-paciente"
 import type { RegistroApiValues } from "@/lib/validations/auth"
 
 type ResultadoCreacion =
@@ -66,6 +67,24 @@ export async function crearCuentaUsuarioPai(
           ? "Ya existe un usuario con esa cédula de identidad."
           : perfilError.message,
       status: 409,
+    }
+  }
+
+  if (rol === "paciente") {
+    const vinc = await vincularFichaNominalPaciente(admin, {
+      userId,
+      ci,
+      nombres,
+      apellidoPaterno,
+      apellidoMaterno,
+    })
+    if (!vinc.ok) {
+      await admin.auth.admin.deleteUser(userId)
+      return {
+        ok: false,
+        error: vinc.error,
+        status: 409,
+      }
     }
   }
 

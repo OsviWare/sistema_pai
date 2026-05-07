@@ -28,7 +28,6 @@ export const NAV_PERSONAL_SALUD: NavItem[] = [
 /** Paciente — carnet y esquema PAI */
 export const NAV_PACIENTE: NavItem[] = [
   { href: "/paciente/historial", label: "Carnet de vacunación" },
-  { href: "/paciente/carnet", label: "Mi carnet virtual PAI" },
   { href: "/paciente/proximas-dosis", label: "Próximas dosis" },
 ]
 

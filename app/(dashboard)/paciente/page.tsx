@@ -20,7 +20,7 @@ export default function PacienteHomePage() {
       </CardHeader>
       <CardContent className="flex flex-wrap gap-3">
         <Button asChild>
-          <Link href="/paciente/carnet">Ir a mi carnet virtual</Link>
+          <Link href="/paciente/historial">Ver mi carnet de vacunación</Link>
         </Button>
         <Button variant="outline" asChild>
           <Link href="/paciente/proximas-dosis">Ver próximas dosis</Link>

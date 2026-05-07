@@ -5,6 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { MisPacientesLista } from "@/components/personal-salud/mis-pacientes-lista"
 
 export default function PersonalSaludMisPacientesPage() {
   return (
@@ -12,12 +13,12 @@ export default function PersonalSaludMisPacientesPage() {
       <CardHeader>
         <CardTitle>Mis pacientes</CardTitle>
         <CardDescription>
-          Seguimiento del esquema de vacunación PAI asignado a tu equipo.
+          Personas a las que usted ha registrado al menos una aplicación de vacuna
+          PAI en el sistema. La búsqueda filtra por cédula o nombre.
         </CardDescription>
       </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">
-        Listado y búsqueda por CI — integración con la tabla{" "}
-        <code className="rounded bg-muted px-1 text-xs">pacientes</code>.
+      <CardContent>
+        <MisPacientesLista />
       </CardContent>
     </Card>
   )
