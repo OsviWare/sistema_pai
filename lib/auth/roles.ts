@@ -2,7 +2,7 @@ import type { RolPai } from "@/lib/types/usuario"
 
 export const ROLES_PAI: Record<RolPai, string> = {
   admin: "Administrador PAI",
-  personal_salud: "Personal de salud",
+  personal_salud: "Personal de Salud",
   paciente: "Paciente",
 }
 
@@ -18,13 +18,13 @@ export function esRolPai(valor: unknown): valor is RolPai {
 export function dashboardInicialPorRol(rol: RolPai | null | undefined): string {
   switch (rol) {
     case "admin":
-      return "/admin/usuarios"
+      return "/admin"
     case "personal_salud":
-      return "/personal-salud/registrar-vacunacion"
+      return "/personal-salud"
     case "paciente":
-      return "/paciente/carnet"
+      return "/paciente"
     default:
-      return "/paciente/carnet"
+      return "/paciente"
   }
 }
 

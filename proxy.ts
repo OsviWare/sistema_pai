@@ -1,35 +1,16 @@
 import { createServerClient } from "@supabase/ssr"
-import type { SupabaseClient, User } from "@supabase/supabase-js"
 import { NextResponse, type NextRequest } from "next/server"
 import {
   dashboardInicialPorRol,
-  esRolPai,
   rolPuedeAccederARuta,
 } from "@/lib/auth/roles"
-import type { RolPai } from "@/lib/types/usuario"
+import { resolverRolUsuario } from "@/lib/auth/resolve-rol"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
 const supabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
   ""
-
-async function obtenerRolUsuario(
-  supabase: SupabaseClient,
-  user: User
-): Promise<RolPai | null> {
-  const meta = user.user_metadata as { rol?: string }
-  if (esRolPai(meta?.rol)) return meta.rol
-
-  const { data } = await supabase
-    .from("usuarios_perfil")
-    .select("rol")
-    .eq("id", user.id)
-    .maybeSingle()
-
-  if (data?.rol && esRolPai(data.rol)) return data.rol
-  return null
-}
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -88,7 +69,14 @@ export async function proxy(request: NextRequest) {
   }
 
   if (user && isPublicRoute && !isAuthCallback) {
-    const rol = await obtenerRolUsuario(supabase, user)
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    const rol = await resolverRolUsuario(
+      supabase,
+      user,
+      session?.access_token
+    )
     const url = request.nextUrl.clone()
     url.pathname = dashboardInicialPorRol(rol)
     return NextResponse.redirect(url)
@@ -103,7 +91,14 @@ export async function proxy(request: NextRequest) {
       request.nextUrl.pathname.startsWith("/personal-salud") ||
       request.nextUrl.pathname.startsWith("/paciente"))
   ) {
-    const rol = await obtenerRolUsuario(supabase, user)
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    const rol = await resolverRolUsuario(
+      supabase,
+      user,
+      session?.access_token
+    )
     if (rol && !rolPuedeAccederARuta(rol, request.nextUrl.pathname)) {
       const url = request.nextUrl.clone()
       url.pathname = dashboardInicialPorRol(rol)

@@ -1,5 +1,12 @@
 import { z } from "zod"
 
+/** Cédula de identidad — validación compartida PAI */
+export const ciPaiSchema = z
+  .string()
+  .min(5, "CI demasiado corta")
+  .max(32, "CI demasiado larga")
+  .regex(/^[\d\s\-a-zA-Z]+$/, "CI con formato inválido")
+
 /** Credenciales login — Programa Ampliado de Inmunización (PAI) */
 export const loginSchema = z.object({
   email: z.string().email("Correo inválido"),
@@ -11,11 +18,7 @@ export const registroSchemaApi = z
     email: z.string().email("Correo inválido"),
     password: z.string().min(8, "Mínimo 8 caracteres"),
     confirmPassword: z.string(),
-    ci: z
-      .string()
-      .min(5, "CI demasiado corta")
-      .max(32, "CI demasiado larga")
-      .regex(/^[\d\s\-a-zA-Z]+$/, "CI con formato inválido"),
+    ci: ciPaiSchema,
     rol: z.enum(["admin", "personal_salud", "paciente"]),
     nombres: z.string().min(2, "Indica al menos el nombre"),
     apellidoPaterno: z.string().optional(),

@@ -17,9 +17,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { dashboardInicialPorRol } from "@/lib/auth/roles"
+import { resolverRolUsuario } from "@/lib/auth/resolve-rol"
 import { createClient } from "@/lib/supabase/client"
 import { loginSchema, type LoginValues } from "@/lib/validations/auth"
-import type { RolPai } from "@/lib/types/usuario"
 
 export function LoginForm() {
   const router = useRouter()
@@ -48,28 +48,14 @@ export function LoginForm() {
 
       await router.refresh()
 
-      let rol: RolPai | null = null
-      const meta = data.user?.user_metadata as { rol?: string } | undefined
-      if (
-        meta?.rol === "admin" ||
-        meta?.rol === "personal_salud" ||
-        meta?.rol === "paciente"
-      ) {
-        rol = meta.rol
-      } else if (data.user) {
-        const { data: perfil } = await supabase
-          .from("usuarios_perfil")
-          .select("rol")
-          .eq("id", data.user.id)
-          .maybeSingle()
-        if (
-          perfil?.rol === "admin" ||
-          perfil?.rol === "personal_salud" ||
-          perfil?.rol === "paciente"
-        ) {
-          rol = perfil.rol
-        }
-      }
+      const rol =
+        data.user != null
+          ? await resolverRolUsuario(
+              supabase,
+              data.user,
+              data.session?.access_token
+            )
+          : null
 
       toast.success("Bienvenido al Sistema PAI")
       router.replace(dashboardInicialPorRol(rol))

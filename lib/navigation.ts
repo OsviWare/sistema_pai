@@ -49,7 +49,7 @@ export function tituloRolDashboard(rol: RolPai | string | null): string {
     case "admin":
       return "Panel administración PAI"
     case "personal_salud":
-      return "Vacunación — Personal de salud"
+      return "Vacunación — Personal de Salud"
     case "paciente":
       return "Mi espacio PAI"
     default:

@@ -2,9 +2,10 @@ import { redirect } from "next/navigation"
 import type { ReactNode } from "react"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar"
+import { resolverRolUsuario } from "@/lib/auth/resolve-rol"
+import { esRolPai } from "@/lib/auth/roles"
 import { getNavigationForRole } from "@/lib/navigation"
 import { createClient } from "@/lib/supabase/server"
-import type { RolPai } from "@/lib/types/usuario"
 
 export default async function DashboardLayout({
   children,
@@ -20,14 +21,24 @@ export default async function DashboardLayout({
     redirect("/login")
   }
 
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  const rolResuelto = await resolverRolUsuario(
+    supabase,
+    user,
+    session?.access_token
+  )
+
   const { data: perfil } = await supabase
     .from("usuarios_perfil")
     .select("*")
     .eq("id", user.id)
     .maybeSingle()
 
-  const rol = (perfil?.rol ??
-    (user.user_metadata as { rol?: string })?.rol) as RolPai | null
+  const rolCrudo = rolResuelto ?? perfil?.rol
+  const rol = esRolPai(rolCrudo) ? rolCrudo : null
 
   const nav = getNavigationForRole(rol ?? null)
 
