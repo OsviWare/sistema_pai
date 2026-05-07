@@ -7,6 +7,7 @@ export type NavItem = {
 
 /** Administración del Programa Ampliado de Inmunización */
 export const NAV_ADMIN: NavItem[] = [
+  { href: "/admin", label: "Inicio — panel principal" },
   { href: "/admin/usuarios", label: "Usuarios del sistema" },
   { href: "/admin/catalogo-vacunas", label: "Catálogo de vacunas PAI" },
   { href: "/admin/establecimientos", label: "Establecimientos de salud" },
@@ -18,6 +19,7 @@ export const NAV_ADMIN: NavItem[] = [
 
 /** Personal de salud — aplicación y seguimiento PAI */
 export const NAV_PERSONAL_SALUD: NavItem[] = [
+  { href: "/personal-salud", label: "Inicio — panel principal" },
   {
     href: "/personal-salud/registrar",
     label: "Registrar vacunación",
@@ -27,6 +29,7 @@ export const NAV_PERSONAL_SALUD: NavItem[] = [
 
 /** Paciente — carnet y esquema PAI */
 export const NAV_PACIENTE: NavItem[] = [
+  { href: "/paciente", label: "Inicio — panel principal" },
   { href: "/paciente/historial", label: "Carnet de vacunación" },
   { href: "/paciente/proximas-dosis", label: "Próximas dosis" },
 ]

@@ -1,14 +1,21 @@
-# Dependencies
+# Dependencies / artefactos de build
 node_modules/
+dist/
 
 # Next.js
 .next/
 out/
 
-# Env / secretos
+# Env / secretos (bloqueo estricto: locales y producción con claves)
 .env
-#.env.local
+.env*.local
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production
 .env.*.local
+!.env.production.example
 *.pem
 
 # Logs / debug

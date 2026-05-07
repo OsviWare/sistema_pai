@@ -6,6 +6,10 @@ import {
 } from "@/lib/auth/roles"
 import { resolverRolUsuario } from "@/lib/auth/resolve-rol"
 
+/**
+ * Proxy (Next.js 16): refresco de sesión SSR — getUser/getSession + cookies.
+ * Un único archivo `proxy.ts` en la raíz; no duplicar `middleware.ts` (el build falla si coexisten).
+ */
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""
 const supabaseKey =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??

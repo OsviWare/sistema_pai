@@ -23,7 +23,7 @@ export async function createClient() {
             cookieStore.set(name, value, options)
           )
         } catch {
-          // Llamado desde un Server Component — la escritura real la gestiona proxy/middleware.
+          // Llamado desde un Server Component — la escritura real la gestiona proxy.ts (SSR).
         }
       },
     },

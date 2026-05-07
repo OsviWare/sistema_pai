@@ -24,15 +24,29 @@ export function DashboardHeader({ nombreMostrar, email, rol }: Props) {
   async function cerrarSesion() {
     setLoading(true)
     try {
-      const supabase = createClient()
-      const { error } = await supabase.auth.signOut()
-      if (error) {
-        toast.error("No se pudo cerrar sesión", { description: error.message })
+      const res = await fetch("/api/auth/sign-out", {
+        method: "POST",
+        credentials: "same-origin",
+      })
+      const payload = (await res.json().catch(() => ({}))) as {
+        ok?: boolean
+        error?: string
+      }
+      if (!res.ok || !payload.ok) {
+        toast.error("No se pudo cerrar sesión en el servidor", {
+          description: payload.error ?? res.statusText,
+        })
         return
       }
+      const supabase = createClient()
+      await supabase.auth.signOut()
       toast.success("Sesión cerrada")
+      router.replace("/login")
       router.refresh()
-      router.push("/login")
+    } catch (e) {
+      toast.error("Error de red al cerrar sesión", {
+        description: e instanceof Error ? e.message : "Intente de nuevo.",
+      })
     } finally {
       setLoading(false)
     }
